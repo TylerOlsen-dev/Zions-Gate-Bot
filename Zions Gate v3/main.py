@@ -10,10 +10,32 @@ from dotenv import load_dotenv
 import csv
 from pathlib import Path
 from typing import List, Dict, Any
+from git import Repo
 
 BASE_DIR = Path(__file__).parent
 SERVERS_CSV = BASE_DIR / "servers.csv"
-USERS_CSV = BASE_DIR / "Users.csv"
+USERS_CSV = BASE_DIR / "users.csv"
+
+# === Git snapshot settings ===
+GIT_TOKEN = os.getenv("CSV_PUSH_TOKEN")  # Personal Access Token with repo write access
+REPO_PATH = BASE_DIR
+CSV_FILES = ["servers.csv", "Users.csv"]
+
+def push_csv_snapshot():
+    """Stage CSVs, amend moving snapshot commit, force-push."""
+    if not GIT_TOKEN:
+        return  # Skip if token not set
+    try:
+        repo = Repo(REPO_PATH)
+        repo.index.add(CSV_FILES)
+        commit_msg = f"CSV snapshot {datetime.utcnow():%Y-%m-%d %H:%M UTC}"
+        repo.index.commit(commit_msg, amend=repo.head.is_valid())
+        origin = repo.remote(name="origin")
+        origin.set_url(f"https://{GIT_TOKEN}@github.com/TylerOlsen-dev/zions-gate-bot.git")
+        origin.push(force=True)
+    except Exception as e:
+        print(f"[CSV snapshot] Git push skipped: {e}")
+
 
 SERVERS_COLUMNS = ["Server_AI_ID","Guild_ID","Server_Name","Local_1","Local_2","Local_3","Global_1","Global_2","Global_3","OwnerID","setup"]
 USERS_COLUMNS = ["User_AI_ID","User_ID","User_Name","Account_Age","Global_Banned"]
@@ -29,6 +51,7 @@ def _save_csv(path: Path, rows: List[Dict[str, Any]], fieldnames: List[str]):
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+        push_csv_snapshot()
 
 def _next_id(rows: List[Dict[str, Any]], id_field: str) -> int:
     if not rows:
