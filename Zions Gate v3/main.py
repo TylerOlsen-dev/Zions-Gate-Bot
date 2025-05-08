@@ -4,13 +4,14 @@ import aiohttp
 import asyncio
 import csv
 import os
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Optional
 from dotenv import load_dotenv
 import csv
 from pathlib import Path
 from typing import List, Dict, Any
 from git import Repo
+load_dotenv()
 
 BASE_DIR = Path(__file__).parent
 SERVERS_CSV = BASE_DIR / "servers.csv"
@@ -19,17 +20,26 @@ USERS_CSV = BASE_DIR / "users.csv"
 # === Git snapshot settings ===
 GIT_TOKEN = os.getenv("CSV_PUSH_TOKEN")  # Personal Access Token with repo write access
 REPO_PATH = BASE_DIR
-CSV_FILES = ["servers.csv", "Users.csv"]
+CSV_FILES = ["servers.csv", "users.csv"]
 
 def push_csv_snapshot():
     """Stage CSVs, amend moving snapshot commit, force-push."""
     if not GIT_TOKEN:
         return  # Skip if token not set
     try:
-        repo = Repo(REPO_PATH)
-        repo.index.add(CSV_FILES)
-        commit_msg = f"CSV snapshot {datetime.utcnow():%Y-%m-%d %H:%M UTC}"
-        repo.index.commit(commit_msg, amend=repo.head.is_valid())
+        repo = Repo(REPO_PATH, search_parent_directories=True)
+        repo_root = Path(repo.working_tree_dir)               # repo’s top-level folder
+        rel_files = [str(SERVERS_CSV.relative_to(repo_root)), # paths relative to repo root
+                     str(USERS_CSV.relative_to(repo_root))]
+        repo.index.add(rel_files)
+        commit_msg = f"CSV snapshot {datetime.now(UTC):%Y-%m-%d %H:%M UTC}"
+
+        if repo.head.is_valid():
+            # Repo already has at least one commit → rewrite it
+            repo.git.commit("--amend", "--no-edit", "-m", commit_msg)
+        else:
+            # First snapshot commit
+            repo.index.commit(commit_msg)
         origin = repo.remote(name="origin")
         origin.set_url(f"https://{GIT_TOKEN}@github.com/TylerOlsen-dev/zions-gate-bot.git")
         origin.push(force=True)
@@ -199,9 +209,6 @@ class CSVConnection:
 
 def db_connection():
     return CSVConnection()
-
-
-load_dotenv()
 
 
 def _is_truthy(val):
