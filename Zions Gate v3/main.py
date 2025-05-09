@@ -769,7 +769,14 @@ async def on_user_update(before: discord.User, after: discord.User):
             embed.set_image(url=new_avatar_url)
         async with aiohttp.ClientSession() as session:
             await session.post(AVATAR_WEBHOOK_URL, json={"content": message, "embeds": [embed.to_dict()]})
-
+# ── auto-sync slash commands ─────────────────────────────────────────────
+@bot.event
+async def on_ready():
+    await bot.tree.sync()                      # update global schema
+    for g in bot.guilds:                       # push to every guild
+        await bot.tree.sync(guild=g)
+    print(f"✅ Slash-command sync complete in {len(bot.guilds)} guild(s).")
+# ─────────────────────────────────────────────────────────────────────────
 # On Ready
 @bot.event
 async def on_ready():
