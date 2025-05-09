@@ -610,6 +610,13 @@ async def reportuser(interaction: discord.Interaction, user: discord.User, reaso
     else:
         await interaction.followup.send("Your report has been submitted. Moderators or administrators will review your report and may contact you for further details.", ephemeral=True)
 
+@bot.tree.command(name="sync", description="Force-refresh slash commands in this server.")
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def sync_here(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    await bot.tree.sync(guild=interaction.guild)
+    await interaction.followup.send("Commands synced for this guild.", ephemeral=True)
+    
 # Slash Command: Local Kick
 @bot.tree.command(name="localkick", description="Kick a user from this server. Reason required; reply with evidence screenshots.")
 async def localkick(interaction: discord.Interaction, user: discord.Member, reason: str):
@@ -653,6 +660,66 @@ async def localban(interaction: discord.Interaction, user: discord.Member, reaso
             await interaction.followup.send(f"Locally banned <@{user.id}> from {interaction.guild.name}.", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"Error banning user: {e}", ephemeral=True)
+
+
+@bot.tree.command(
+    name="searchuser",
+    description="Search users.csv by ID or username (global roles only)."
+)
+@discord.app_commands.describe(
+    query="Discord ID or username"
+)
+async def searchuser(interaction: discord.Interaction, query: str):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        conn = db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT Global_1, Global_2, Global_3 FROM servers WHERE Guild_ID = %s",
+            (interaction.guild.id,)
+        )
+        allowed_roles = [
+            int(r) for r in cur.fetchone() if r and str(r).upper() != "NULL"
+        ]
+        cur.close()
+        conn.close()
+    except Exception:
+        return await interaction.followup.send(
+            "Internal error resolving roles.", ephemeral=True
+        )
+    if not any(r in [role.id for role in interaction.user.roles] for r in allowed_roles):
+        return await interaction.followup.send(
+            "Access Denied: You do not have permission to use this command.",
+            ephemeral=True,
+        )
+    matches = []
+    try:
+        with open(USERS_CSV, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if query.isdigit() and row["User_ID"] == query:
+                    matches.append(row)
+                elif not query.isdigit():
+                    q_lower = query.lower()
+                    stored = row["User_Name"].lower()
+                    if ("#" in q_lower and stored == q_lower) or (stored.split("#")[0] == q_lower):
+                        matches.append(row)
+    except Exception:
+        return await interaction.followup.send(
+            "Internal error reading database.", ephemeral=True
+        )
+    if not matches:
+        return await interaction.followup.send(
+            "No matching users found.", ephemeral=True
+        )
+    lines = [
+        f"User_ID: {r['User_ID']} | User_Name: {r['User_Name']} | "
+        f"Account_Age: {r['Account_Age']} | Global_Banned: {r['Global_Banned']}"
+        for r in matches[:10]
+    ]
+    await interaction.followup.send("\n".join(lines), ephemeral=True)
+
+
 
 # Slash Command: Purge
 @bot.tree.command(name="purge", description="Delete messages and log them.")
